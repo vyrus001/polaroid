@@ -1,24 +1,3 @@
-/*
-	#######################################################################################
-
-	# Polaroid:	Creates a clone of a given URL with all of the external resources remapped
-	# 			to use global URLs.
-	#
-	# Opt:	-t	Sets the target URL
-	#
-	# Opt:	-s	Start a web server and serve the modified page, then when input is entered,
-	#			gather the data and retransmit the request to the original page
-	#
-	# Opt:	-e	Embed a payload in the HTML
-
-	#######################################################################################
-
-	# By:		Vyrus
-	# Usage:	<polaroid> <-t URL> [-s]
-
-	#######################################################################################
-*/
-
 package main
 
 import (
